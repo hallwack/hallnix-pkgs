@@ -1,118 +1,95 @@
 {
-  stdenv,
   lib,
-  appimageTools,
-  fetchurl,
-  glib,
-  gtk3,
-  cairo,
-  pango,
-  nss,
-  nspr,
-  alsa-lib,
-  cups,
-  libuuid,
-  libnotify,
-  atk,
-  at-spi2-atk,
+  buildNpmPackage,
+  fetchFromGitHub,
+  makeDesktopItem,
+  copyDesktopItems,
+  electron_41,
+  makeBinaryWrapper,
+  nix-update-script,
+
+  installCli ? false,
 }:
 
 let
-  pname = "zennotes";
-  version = "2.3.0";
-
-  architectures = {
-    "x86_64-linux" = {
-      arch = "linux-x86_64";
-      hash = "sha256-IvFGK7n3KQVGETmt6hQUy+bZNTOCkfuwH8ifl4KTxxw=";
-    };
-  };
-
-  system =
-    architectures.${stdenv.hostPlatform.system} or (throw ''
-      Unsupported system: ${stdenv.hostPlatform.system}
-      Supported systems: ${lib.concatStringsSep ", " (lib.attrNames architectures)}
-    '');
-
-  src = fetchurl {
-    url = "https://github.com/ZenNotes/zennotes/releases/download/v${version}/ZenNotes-${version}-${system.arch}.AppImage";
-    inherit (system) hash;
-  };
-
-  appImageContents = appimageTools.extractType2 {
-    inherit pname version src;
-  };
+  releaseData = lib.importJSON ./release-data.json;
 
 in
-appimageTools.wrapType2 {
-  inherit pname version src;
+buildNpmPackage (finalAttrs: {
+  pname = "zennotes-desktop";
+  inherit (releaseData) version;
 
-  extraPkgs = pkgs: [
-    glib
-    gtk3
-    atk
-    at-spi2-atk
-    cairo
-    pango
-    nss
-    nspr
-    alsa-lib
-    cups
-    libuuid
-    libnotify
+  src = fetchFromGitHub {
+    owner = "ZenNotes";
+    repo = "zennotes";
+    tag = "v${finalAttrs.version}";
+    hash = releaseData.desktopHash;
+  };
+
+  npmWorkspace = "apps/desktop";
+
+  env.ELECTRON_SKIP_BINARY_DOWNLOAD = "1";
+
+  strictDeps = true;
+  __structuredAttrs = true;
+
+  nativeBuildInputs = [
+    makeBinaryWrapper
+    copyDesktopItems
   ];
 
-  extraInstallCommands = ''
-    #
-    # Desktop entry
-    #
-    mkdir -p $out/share/applications
+  installPhase = ''
+    runHook preInstall
 
-    cp ${appImageContents}/ZenNotes.desktop \
-      $out/share/applications/${pname}.desktop
+    mkdir -p $out/lib/node_modules/zennotes-monorepo
+    cp -r . $out/lib/node_modules/zennotes-monorepo/
 
-    substituteInPlace $out/share/applications/${pname}.desktop \
-      --replace-fail "Exec=AppRun" "Exec=${pname}" \
-      --replace "Comment=" "Comment=Keyboard-first local Markdown notes"
+    for icon in apps/desktop/build/icons/*.png; do
+      size="$(basename "$icon" .png)"
+      install -Dm644 $icon $out/share/icons/hicolor/$size/apps/zennotes-desktop.png
+    done
 
-    #
-    # Icon
-    #
-    mkdir -p $out/share/icons/hicolor/512x512/apps
+    mkdir -p $out/bin
+    makeWrapper ${electron_41}/bin/electron $out/bin/zennotes-desktop \
+      --add-flags "$out/lib/node_modules/zennotes-monorepo/apps/desktop"
 
-    cp ${appImageContents}/ZenNotes.png \
-      $out/share/icons/hicolor/512x512/apps/${pname}.png
+    ${lib.optionalString installCli ''
+      makeWrapper ${electron_41}/libexec/electron/electron $out/bin/zen \
+        --set ELECTRON_RUN_AS_NODE 1 \
+        --add-flags "$out/lib/node_modules/zennotes-monorepo/apps/desktop/out/main/cli.js"
+    ''}
 
-    #
-    # CLI launcher
-    #
-    # Upstream ships resources/zen which directly launches the
-    # Electron binary. That bypasses the FHS environment generated
-    # by wrapType2 and causes missing library errors on NixOS.
-    #
-    # Instead, execute the wrapped zennotes launcher and point it
-    # at the bundled cli.js.
-    #
-    cat > $out/bin/zen <<EOF
-    #!${stdenv.shell}
-
-    export ELECTRON_RUN_AS_NODE=1
-
-    exec "$out/bin/${pname}" \
-      ${appImageContents}/resources/cli.js \
-      "\$@"
-    EOF
-
-        chmod +x $out/bin/zen
+    runHook postInstall
   '';
 
-  meta = with lib; {
-    description = "Keyboard-first local Markdown notes";
+  desktopItems = [
+    (makeDesktopItem {
+      name = "zennotes-desktop";
+      desktopName = "ZenNotes";
+      exec = "zennotes-desktop %U";
+      icon = "zennotes-desktop";
+      comment = "Keyboard-first local Markdown notes";
+      categories = [
+        "Office"
+        "Utility"
+        "TextEditor"
+      ];
+      startupWMClass = "ZenNotes";
+      mimeTypes = [
+        "text/markdown"
+        "x-scheme-handler/zennotes"
+      ];
+    })
+  ];
+
+  passthru.updateScript = nix-update-script { extraArgs = [ "--use-github-releases" ]; };
+
+  meta = {
+    description = "Keyboard-first local Markdown notes with Vim motions, diagrams, and MCP integration";
     homepage = "https://zennotes.org/";
-    license = licenses.mit;
-    mainProgram = pname;
-    platforms = [
-      "x86_64-linux"
-    ];
+    changelog = "https://github.com/ZenNotes/zennotes/releases/tag/v${finalAttrs.version}";
+    license = lib.licenses.mit;
+    mainProgram = "zennotes-desktop";
+    platforms = lib.platforms.darwin ++ lib.platforms.linux;
   };
-}
+})

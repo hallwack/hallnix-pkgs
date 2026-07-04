@@ -17,13 +17,13 @@ let
 in
 buildNpmPackage (finalAttrs: {
   pname = "zennotes-desktop";
-  inherit (releaseData) version;
+  inherit (releaseData) version npmDepsHash;
 
   src = fetchFromGitHub {
     owner = "ZenNotes";
     repo = "zennotes";
     tag = "v${finalAttrs.version}";
-    hash = releaseData.desktopHash;
+    hash = releaseData.hash;
   };
 
   npmWorkspace = "apps/desktop";

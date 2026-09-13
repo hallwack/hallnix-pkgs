@@ -6,12 +6,12 @@
 }:
 let
   pname = "helium-browser";
-  version = "0.13.3.1";
+  version = "0.17.0.1";
 
   architectures = {
     "x86_64-linux" = {
       arch = "x86_64";
-      hash = "sha256-RS+Sn42V+HjCw41N1zayMVIqlgH+i2B2IdVJwBPmw00=";
+      hash = "sha256-JmqdEwoXP/2GGAMS2gjAq7G2oWFuyUTr5ouMDhSOcHY=";
     };
     "aarch64-linux" = {
       arch = "arm64";
